@@ -1,0 +1,52 @@
+plugins {
+    id 'com.android.application'
+}
+
+// La app abre la plataforma a pantalla completa (Trusted Web Activity): no hay que actualizarla cuando cambia la web
+def sitio = 'redes-uga.pages.dev'
+
+android {
+    namespace 'dev.pages.redesuga.app'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'dev.pages.redesuga.app'
+        minSdk 23
+        targetSdk 36
+        versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
+        versionName "1.${versionCode}"
+
+        resValue 'string', 'hostName', sitio
+        resValue 'string', 'launchUrl', "https://${sitio}/"
+        resValue 'string', 'providerAuthority', 'dev.pages.redesuga.app.fileprovider'
+    }
+
+    signingConfigs {
+        release {
+            storeFile file('firma.jks')
+            storePassword System.getenv('KEYSTORE_PASSWORD')
+            keyAlias 'redes-uga'
+            keyPassword System.getenv('KEYSTORE_PASSWORD')
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig file('firma.jks').exists() ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.3'
+}
