@@ -32,13 +32,37 @@ jobs:
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           VERSION_CODE: ${{ github.run_number }}
-        run: gradle assembleRelease --no-daemon
+        run: |
+          gradle assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk redes-uga.apk
+
+      - name: Habilitar KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Probar en un emulador Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash prueba-emulador.sh
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: prueba-emulador
+          path: |
+            logcat.txt
+            pantalla.png
 
       - name: Publicar la APK
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/release/app-release.apk redes-uga.apk
           gh release create "v1.${{ github.run_number }}" redes-uga.apk \
             --title "Redes UGA 1.${{ github.run_number }}" \
             --notes "App Android de https://redes-uga.pages.dev. Descargá redes-uga.apk e instalala en el celular." \
