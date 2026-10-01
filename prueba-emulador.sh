@@ -3,10 +3,10 @@ set -x
 APP=dev.pages.redesuga.app
 
 pantalla() {
-  # uiautomator a veces falla si la página todavía se está moviendo: se reintenta
-  for i in 1 2 3 4 5; do
-    adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml "$1.xml" && return 0
-    sleep 3
+  # El texto de la página tarda en aparecer para uiautomator (más en Android nuevos): se reintenta hasta verlo
+  for i in $(seq 1 10); do
+    adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml "$1.xml" && grep -q "$2" "$1.xml" && return 0
+    sleep 4
   done
   return 1
 }
@@ -17,7 +17,7 @@ adb logcat -c
 adb shell am start -W -n $APP/.MainActivity
 sleep 25
 adb exec-out screencap -p > pantalla.png
-pantalla ui
+pantalla ui "Ingresar"
 adb logcat -d > logcat.txt
 if grep -A 30 "FATAL EXCEPTION" logcat.txt | grep -q "$APP"; then
   grep -A 40 "FATAL EXCEPTION" logcat.txt
@@ -37,7 +37,7 @@ sleep 3
 adb shell am start -W -n $APP/.MainActivity
 sleep 15
 adb exec-out screencap -p > pantalla-sin-conexion.png
-pantalla ui-sin-conexion
+pantalla ui-sin-conexion "Sin conexi"
 adb shell svc wifi enable
 adb shell svc data enable
 if ! grep -q "Sin conexi" ui-sin-conexion.xml; then
