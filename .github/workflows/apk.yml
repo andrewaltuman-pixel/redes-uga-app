@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  apk:
+  compilar:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -36,6 +36,26 @@ jobs:
           gradle assembleRelease --no-daemon
           cp app/build/outputs/apk/release/app-release.apk redes-uga.apk
 
+      - uses: actions/upload-artifact@v7
+        with:
+          name: apk
+          path: redes-uga.apk
+
+  # Un Android viejo (10) y el más nuevo (16): si abre en los dos, abre en los del medio
+  probar:
+    needs: compilar
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [29, 36]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: apk
+
       - name: Habilitar KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -45,7 +65,7 @@ jobs:
       - name: Probar en un emulador Android
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: ${{ matrix.api }}
           target: google_apis
           arch: x86_64
           disable-animations: true
@@ -54,17 +74,26 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: prueba-emulador
+          name: prueba-android-${{ matrix.api }}
           path: |
             logcat.txt
-            pantalla.png
-            ui.xml
+            pantalla*.png
+            ui*.xml
+
+  publicar:
+    needs: probar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: apk
 
       - name: Publicar la APK
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v1.${{ github.run_number }}" redes-uga.apk \
-            --title "Redes UGA 1.${{ github.run_number }}" \
-            --notes "App Android de https://redes-uga.pages.dev. Descargá redes-uga.apk e instalala en el celular." \
+          gh release create "v2.${{ github.run_number }}" redes-uga.apk \
+            --repo "${{ github.repository }}" \
+            --title "Redes UGA 2.${{ github.run_number }}" \
+            --notes "App Android de https://redes-uga.pages.dev, con visor propio: funciona sin depender del navegador del celular. Descargá redes-uga.apk e instalala." \
             --latest

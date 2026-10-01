@@ -2,7 +2,8 @@ plugins {
     id 'com.android.application'
 }
 
-// La app abre la plataforma a pantalla completa (Trusted Web Activity): no hay que actualizarla cuando cambia la web
+// App nativa con visor web propio: abre la plataforma sin depender del navegador instalado.
+// No hay que actualizarla cuando cambia la web.
 def sitio = 'redes-uga.pages.dev'
 
 android {
@@ -14,11 +15,14 @@ android {
         minSdk 23
         targetSdk 36
         versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
-        versionName "1.${versionCode}"
+        versionName "2.${versionCode}"
 
+        buildConfigField 'String', 'SITIO', "\"${sitio}\""
         resValue 'string', 'hostName', sitio
-        resValue 'string', 'launchUrl', "https://${sitio}/"
-        resValue 'string', 'providerAuthority', 'dev.pages.redesuga.app.fileprovider'
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     signingConfigs {
@@ -48,5 +52,7 @@ android {
 }
 
 dependencies {
-    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.3'
+    implementation 'androidx.activity:activity:1.10.1'
+    implementation 'androidx.core:core:1.16.0'
+    implementation 'androidx.work:work-runtime:2.10.1'
 }

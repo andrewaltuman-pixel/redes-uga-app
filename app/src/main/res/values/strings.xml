@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="appName">Redes y Comunicaciones · UNIGRAN</string>
     <string name="launcherName">Redes UGA</string>
-    <string name="assetStatements" translatable="false">[{ \"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": { \"namespace\": \"web\", \"site\": \"https://redes-uga.pages.dev\" } }]</string>
+    <string name="canalAvisos">Avisos de la clase</string>
 </resources>
