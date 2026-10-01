@@ -58,6 +58,7 @@ jobs:
           path: |
             logcat.txt
             pantalla.png
+            ui.xml
 
       - name: Publicar la APK
         env:
