@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
 import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -72,6 +73,11 @@ public class MainActivity extends ComponentActivity {
 
     private final ActivityResultLauncher<String> pedirPermisoAvisos = registerForActivityResult(
             new ActivityResultContracts.RequestPermission(), concedido -> { });
+
+    private PermissionRequest pedidoMicrofono;
+
+    private final ActivityResultLauncher<String> pedirPermisoMicrofono = registerForActivityResult(
+            new ActivityResultContracts.RequestPermission(), concedido -> responderMicrofono(concedido));
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -157,6 +163,13 @@ public class MainActivity extends ComponentActivity {
         return "https".equals(u.getScheme()) && BuildConfig.SITIO.equals(u.getHost());
     }
 
+    private void responderMicrofono(boolean concedido) {
+        if (pedidoMicrofono == null) return;
+        if (concedido) pedidoMicrofono.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+        else pedidoMicrofono.deny();
+        pedidoMicrofono = null;
+    }
+
     private void entregar(Uri[] uris) {
         if (eleccion != null) eleccion.onReceiveValue(uris);
         eleccion = null;
@@ -220,6 +233,31 @@ public class MainActivity extends ComponentActivity {
     }
 
     private class Cromo extends WebChromeClient {
+        // El visor niega el micrófono si la app no lo concede: solo la plataforma y solo audio
+        @Override
+        public void onPermissionRequest(PermissionRequest pedido) {
+            runOnUiThread(() -> {
+                boolean soloAudio = pedido.getResources().length > 0;
+                for (String r : pedido.getResources()) if (!PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) soloAudio = false;
+                if (!soloAudio || !esDelSitio(pedido.getOrigin())) {
+                    pedido.deny();
+                    return;
+                }
+                if (pedidoMicrofono != null) pedidoMicrofono.deny();
+                pedidoMicrofono = pedido;
+                if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                    responderMicrofono(true);
+                } else {
+                    pedirPermisoMicrofono.launch(Manifest.permission.RECORD_AUDIO);
+                }
+            });
+        }
+
+        @Override
+        public void onPermissionRequestCanceled(PermissionRequest pedido) {
+            if (pedido == pedidoMicrofono) pedidoMicrofono = null;
+        }
+
         @Override
         public boolean onShowFileChooser(WebView vista, ValueCallback<Uri[]> callback, FileChooserParams opciones) {
             if (eleccion != null) eleccion.onReceiveValue(null);
