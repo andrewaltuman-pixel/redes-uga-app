@@ -26,27 +26,33 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 
-import androidx.activity.ComponentActivity;
 import androidx.activity.EdgeToEdge;
 import androidx.activity.OnBackPressedCallback;
 import androidx.activity.SystemBarStyle;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.fragment.app.FragmentActivity;
+
+import org.json.JSONObject;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.crypto.Cipher;
+
 /**
  * Abre la plataforma en un visor web propio de la app: funciona en cualquier Android, sin depender
  * de que Chrome (u otro navegador) esté instalado o actualizado.
  */
-public class MainActivity extends ComponentActivity {
+public class MainActivity extends FragmentActivity {
     static final String INICIO = "https://" + BuildConfig.SITIO + "/";
     private static final String SIN_CONEXION = "file:///android_asset/sin-conexion.html";
 
@@ -78,6 +84,13 @@ public class MainActivity extends ComponentActivity {
 
     private PermissionRequest pedidoMicrofono;
 
+    // Ingreso con huella: lo que se tipeó en el ingreso hasta saber si la contraseña era correcta
+    private interface ConCifrador { void usar(Cipher c); }
+    private BiometricPrompt biometria;
+    private ConCifrador alAutenticar;
+    private String[] ingresoPendiente;
+    private boolean enviadoConHuella;
+
     private final ActivityResultLauncher<String> pedirPermisoMicrofono = registerForActivityResult(
             new ActivityResultContracts.RequestPermission(), concedido -> responderMicrofono(concedido));
 
@@ -87,6 +100,24 @@ public class MainActivity extends ComponentActivity {
         int fondo = ContextCompat.getColor(this, R.color.fondo);
         EdgeToEdge.enable(this, SystemBarStyle.dark(fondo), SystemBarStyle.dark(fondo));
         super.onCreate(estado);
+
+        biometria = new BiometricPrompt(this, ContextCompat.getMainExecutor(this), new BiometricPrompt.AuthenticationCallback() {
+            @Override
+            public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult r) {
+                ConCifrador f = alAutenticar;
+                alAutenticar = null;
+                BiometricPrompt.CryptoObject co = r.getCryptoObject();
+                if (f != null && co != null && co.getCipher() != null) f.usar(co.getCipher());
+            }
+
+            @Override
+            public void onAuthenticationError(int codigo, CharSequence msg) {
+                alAutenticar = null;
+                if (codigo != BiometricPrompt.ERROR_USER_CANCELED && codigo != BiometricPrompt.ERROR_NEGATIVE_BUTTON && codigo != BiometricPrompt.ERROR_CANCELED) {
+                    Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
+                }
+            }
+        });
 
         raiz = new FrameLayout(this);
         raiz.setBackgroundColor(fondo);
@@ -172,6 +203,66 @@ public class MainActivity extends ComponentActivity {
         pedidoMicrofono = null;
     }
 
+    private void pedirHuella(String titulo, Cipher c, ConCifrador f) {
+        alAutenticar = f;
+        BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()
+                .setTitle(titulo)
+                .setSubtitle("Redes y Comunicaciones")
+                .setNegativeButtonText("Usar contraseña")
+                .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+                .build();
+        biometria.authenticate(info, new BiometricPrompt.CryptoObject(c));
+    }
+
+    private static boolean esIngreso(String url) {
+        if (url == null || !url.startsWith(INICIO)) return false;
+        String ruta = Uri.parse(url).getPath();
+        return ruta != null && ruta.startsWith("/login");
+    }
+
+    private void avisarPagina() {
+        web.evaluateJavascript("window.huellaCambio && window.huellaCambio()", null);
+    }
+
+    // Descifra con la huella y completa el formulario de ingreso que está en pantalla
+    private void ingresarConHuella() {
+        if (!Huella.guardada(this) || !esIngreso(web.getUrl())) return;
+        Cipher c = Huella.paraLeer(this);
+        if (c == null) {
+            Toast.makeText(this, "Cambió la biometría del celular: ingresá con tu contraseña y volvé a activar la huella.", Toast.LENGTH_LONG).show();
+            avisarPagina();
+            return;
+        }
+        pedirHuella("Ingresar con huella", c, cifrador -> {
+            String[] datos = Huella.leer(this, cifrador);
+            if (datos == null || !esIngreso(web.getUrl())) return;
+            enviadoConHuella = true;
+            web.evaluateJavascript("window.ingresarConHuella && window.ingresarConHuella(" + JSONObject.quote(datos[0]) + "," + JSONObject.quote(datos[1]) + ")", null);
+        });
+    }
+
+    // Después de un ingreso correcto con contraseña: ofrece usar la huella la próxima vez
+    private void ofrecerHuella(String[] datos) {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("¿Ingresar con huella?")
+                .setMessage("La próxima vez podés entrar como " + datos[0] + " con tu huella o tu rostro, sin escribir la contraseña. La contraseña queda cifrada en este celular.")
+                .setPositiveButton("Activar", (d, w) -> {
+                    Cipher c = Huella.paraGuardar();
+                    if (c == null) {
+                        Toast.makeText(this, "No se pudo activar la huella en este celular.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    pedirHuella("Confirmá con tu huella", c, cifrador -> {
+                        boolean ok = Huella.guardar(this, cifrador, datos[0], datos[1]);
+                        Toast.makeText(this, ok ? "Listo: la próxima vez ingresás con tu huella." : "No se pudo guardar.", Toast.LENGTH_LONG).show();
+                        avisarPagina();
+                    });
+                })
+                .setNegativeButton("Ahora no", null)
+                .setNeutralButton("No volver a preguntar", (d, w) -> Huella.noPreguntarMas(this))
+                .show();
+    }
+
     private void entregar(Uri[] uris) {
         if (eleccion != null) eleccion.onReceiveValue(uris);
         eleccion = null;
@@ -226,6 +317,21 @@ public class MainActivity extends ComponentActivity {
             // En la pantalla de ingreso no hay sesión: la clave de avisos de quien salió deja de usarse
             if (ruta.startsWith("/login")) Avisos.olvidarClave(MainActivity.this);
             else Avisos.asegurarClave(MainActivity.this);
+
+            boolean ingreso = ruta.startsWith("/login");
+            if (enviadoConHuella) {
+                enviadoConHuella = false;
+                // Volvió al ingreso: la contraseña guardada ya no sirve (por ejemplo, la cambió)
+                if (ingreso) {
+                    Huella.olvidar(MainActivity.this);
+                    Toast.makeText(MainActivity.this, "La contraseña guardada ya no es válida. Ingresá con la nueva y volvé a activar la huella.", Toast.LENGTH_LONG).show();
+                    avisarPagina();
+                }
+            }
+            String[] datos = ingresoPendiente;
+            ingresoPendiente = null;
+            // Una clave provisoria (hay que cambiarla) no se guarda
+            if (datos != null && !ingreso && !ruta.startsWith("/cambiar-clave")) ofrecerHuella(datos);
         }
 
         @Override
@@ -304,6 +410,37 @@ public class MainActivity extends ComponentActivity {
             runOnUiThread(() -> {
                 raiz.setBackgroundColor(color);
                 web.setBackgroundColor(color);
+            });
+        }
+
+        @JavascriptInterface
+        public String huellaEstado() {
+            return Huella.estado(MainActivity.this);
+        }
+
+        @JavascriptInterface
+        public void huellaIngresar() {
+            runOnUiThread(MainActivity.this::ingresarConHuella);
+        }
+
+        // El formulario de ingreso avisa qué se tipeó; se ofrece guardarlo solo si el ingreso sale bien
+        @JavascriptInterface
+        public void recordarIngreso(String usuario, String contrasena) {
+            runOnUiThread(() -> {
+                if (!esIngreso(web.getUrl()) || usuario == null || contrasena == null || usuario.isEmpty() || contrasena.isEmpty()) return;
+                if (!Huella.disponible(MainActivity.this)) return;
+                boolean mismo = Huella.guardada(MainActivity.this) && usuario.trim().equalsIgnoreCase(Huella.usuario(MainActivity.this));
+                if (mismo || Huella.noPreguntar(MainActivity.this)) return;
+                ingresoPendiente = new String[]{usuario.trim(), contrasena};
+            });
+        }
+
+        @JavascriptInterface
+        public void huellaOlvidar() {
+            runOnUiThread(() -> {
+                Huella.olvidar(MainActivity.this);
+                getSharedPreferences("huella", MODE_PRIVATE).edit().remove("no_preguntar").apply();
+                avisarPagina();
             });
         }
 
