@@ -7,6 +7,7 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -50,6 +51,7 @@ public class MainActivity extends ComponentActivity {
     private static final String SIN_CONEXION = "file:///android_asset/sin-conexion.html";
 
     private WebView web;
+    private FrameLayout raiz;
     private ValueCallback<Uri[]> eleccion;
     private Uri fotoCamara;
 
@@ -86,7 +88,7 @@ public class MainActivity extends ComponentActivity {
         EdgeToEdge.enable(this, SystemBarStyle.dark(fondo), SystemBarStyle.dark(fondo));
         super.onCreate(estado);
 
-        FrameLayout raiz = new FrameLayout(this);
+        raiz = new FrameLayout(this);
         raiz.setBackgroundColor(fondo);
         web = new WebView(this);
         web.setBackgroundColor(fondo);
@@ -292,8 +294,19 @@ public class MainActivity extends ComponentActivity {
         }
     }
 
-    /** Lo único que la página puede pedirle a la app: estado y prueba de los avisos. */
+    /** Lo único que la página puede pedirle a la app: estado y prueba de los avisos, y el color de las barras. */
     private class Puente {
+        // Color de la cabecera de la paleta elegida (siempre oscuro: los íconos de la barra quedan claros)
+        @JavascriptInterface
+        public void colorBarras(String css) {
+            if (css == null || !css.matches("#[0-9a-fA-F]{6}")) return;
+            int color = Color.parseColor(css);
+            runOnUiThread(() -> {
+                raiz.setBackgroundColor(color);
+                web.setBackgroundColor(color);
+            });
+        }
+
         @JavascriptInterface
         public boolean avisosPermitidos() {
             return Avisos.permitidos(MainActivity.this);
